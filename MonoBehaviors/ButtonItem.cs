@@ -1,14 +1,11 @@
 using System;
 using System.Collections;
 using GameNetcodeStuff;
-using Mono.Cecil.Cil;
 using Unity.Netcode;
 using UnityEngine;
-using UnityEngine.InputSystem.EnhancedTouch;
-using UnityEngine.UIElements;
-using static MysteryButton.ExtensionMethod.PlayerControllerExtension;
+using static ScrapButton.ExtensionMethod.PlayerControllerExtension;
 
-namespace MysteryButton.MonoBehaviors{
+namespace ScrapButton.MonoBehaviors{
     internal class ButtonItem : PhysicsProp{
         private System.Random random;
         private int bomb;
@@ -25,10 +22,13 @@ namespace MysteryButton.MonoBehaviors{
         public Material defMat;
         private bool lastLit = true;
         public bool exploding = false;
-        public bool isTeleporting = false;
         public PlayerControllerB playerLastHeldBy;
-        public ParticleSystem beamUpParticle;
         public AudioClip beamUpAudio;
+        public AudioClip beamUpAudio2;
+        public AudioClip tpSFX;
+        public AudioClip inverseSFX;
+        //public AudioClip evacNotice;
+        private static System.Random tpSeed;
         
         public override void Start()
         {
@@ -36,23 +36,24 @@ namespace MysteryButton.MonoBehaviors{
             random = new System.Random(StartOfRound.Instance.randomMapSeed);
             bomb = (int)(Plugin.Instance.bombChance.Value * 10000);
             flood = (int)(Plugin.Instance.floodChance.Value * 10000);
+            //flood = 0;
             light = GetComponentInChildren<Light>();
             var child = gameObject.transform.GetChild(0).GetChild(4);
             innerRenderer = child.GetComponent<MeshRenderer>();
             defMat = innerRenderer.GetMaterial();
-            beep = RoundManager.Instance.spawnableMapObjects[0].prefabToSpawn.GetComponentInChildren<Landmine>().mineTrigger;
-            detonate = RoundManager.Instance.spawnableMapObjects[0].prefabToSpawn.GetComponentInChildren<Landmine>().mineDetonate;
+            
             mainAudio = gameObject.GetComponent<AudioSource>();
-            beamUpParticle = gameObject.GetComponent<ParticleSystem>();
-            var beamRef = StartOfRound.Instance.localPlayerController.beamUpParticle;
-            var fieldInfo = beamRef.GetType().GetFields();
-            foreach(var field in fieldInfo){
-                field.SetValue(beamUpParticle, field.GetValue(beamRef));
-            }
-            var tpRef = StartOfRound.Instance.unlockablesList.unlockables[5].prefabObject.GetComponent<ShipTeleporter>();
-            beamUpAudio = tpRef.beamUpPlayerBodySFX;
-
+            
         }
+
+        
+
+        public static void NewSeed(){
+            tpSeed = new System.Random(StartOfRound.Instance.randomMapSeed + 17 + (int)GameNetworkManager.Instance.localPlayerController.playerClientId);
+        }
+
+
+
         public override void ItemActivate(bool used, bool buttonDown = true)
         {
             base.ItemActivate(used,buttonDown);
@@ -64,7 +65,7 @@ namespace MysteryButton.MonoBehaviors{
             if(playerHeldBy == null){
                 return;
             }
-            currentUseCooldown = 3f;
+            currentUseCooldown = 3.5f;
             var playerId = playerHeldBy.playerClientId;
             mainAudio.PlayOneShot(pressed);
             if(StartOfRound.Instance.inShipPhase){
@@ -100,26 +101,9 @@ namespace MysteryButton.MonoBehaviors{
                 Detonate();
                 Destroy(gameObject);
             }
-            if(isTeleporting){
-                if(playerHeldBy == null){
-                    if(playerLastHeldBy != null){
-                        if(playerLastHeldBy.beamUpParticle.isPlaying){
-                            playerLastHeldBy.beamUpParticle.Stop();
-                        }
-                        playerLastHeldBy = null;
-                    }
-                    if(!beamUpParticle.isPlaying){
-                        beamUpParticle.Play();
-                    }
-                } else {
-                    if(!playerHeldBy.beamUpParticle.isPlaying){
-                        playerHeldBy.beamUpParticle.Play();
-                    }
-                    if(beamUpParticle.isPlaying){
-                        beamUpParticle.Stop();
-                    }
-                }
-            }
+        }
+        public override void OnDestroy(){
+            StopAllCoroutines();
         }
 
         public void ExecuteButtonPressOnServer(ulong id){
@@ -142,7 +126,7 @@ namespace MysteryButton.MonoBehaviors{
         }
 
         public void ExecuteTeleportOnServer(ulong id){
-            ExecuteTeleportClientRpc(Plugin.Instance.leaveScrap.Value);
+            ExecuteTeleportClientRpc(Plugin.Instance.leaveScrap.Value, id);
         }
         public void ExecuteBombTriggerOnServer(){
             boomTimer = 1.7f;
@@ -152,10 +136,36 @@ namespace MysteryButton.MonoBehaviors{
         public void Detonate(){
             mainAudio.pitch = UnityEngine.Random.Range(0.93f, 1.07f);
 		    mainAudio.PlayOneShot(detonate, 1f);
-		    Landmine.SpawnExplosion(base.transform.position + Vector3.up, true, 1f, 4.4f);
+		    Landmine.SpawnExplosion(base.transform.position + UnityEngine.Vector3.up, true, 1f, 4.4f);
         }
         public void ExecuteFloodOnServer(){
+            if(IndoorFlood.active){ return; }
+            if(IndoorFlood.CheckBounds()){
+                StartFloodClientRpc();
+            } else {
+                ExecuteErrorOnServer();
+            }
+        }
+        public void ExecuteErrorOnServer(){
+            Plugin.Instance.logger.LogError(string.Format("Flood function can't find the level bounds on: ${0}. If this is a custom map, please fill out a bug report with a link to the map. For now, get a prize.", RoundManager.Instance.currentLevel.name));
+            PlayPrizeSoundClientRpc();
+            var bar = Instantiate(GameObject.Find("GoldBar"), transform.position, Quaternion.identity);
+            bar.GetComponent<PhysicsProp>().SetScrapValue(210);
+            bar.GetComponent<NetworkObject>().Spawn();
+            Destroy(gameObject);
+        }
+        [ClientRpc]
+        public void PlayPrizeSoundClientRpc(){
+            mainAudio.PlayOneShot(FindObjectOfType<GiftBoxItem>().openGiftAudio);
+        }
 
+        [ClientRpc]
+        public void StartFloodClientRpc(){
+            innerRenderer.SetMaterial(blueGlow);
+            light.color = Color.cyan;
+            light.enabled = true;
+            var iFlood = Instantiate(Plugin.Instance.indoorFlooding);
+            iFlood.SetActive(true);
         }
 
         [ServerRpc(RequireOwnership = false)]
@@ -173,30 +183,132 @@ namespace MysteryButton.MonoBehaviors{
             light.enabled = true;
         }
         [ClientRpc]
-        public void ExecuteTeleportClientRpc(bool dropScrap){
-            isTeleporting = true;
-            StartCoroutine(BeamToShip(dropScrap));
-
+        public void ExecuteTeleportClientRpc(bool dropScrap, ulong id){
+            if(StartOfRound.Instance.shipInnerRoomBounds.bounds.Contains(transform.position)){
+                StartCoroutine(BeamToFactory(dropScrap, id));
+            } else {
+                StartCoroutine(BeamToShip(dropScrap, id));
+            }
 
         }
 
-        public IEnumerator BeamToShip(bool dropScrap){
-            mainAudio.PlayOneShot(beamUpAudio);
+        public IEnumerator BeamToFactory(bool dropScrap, ulong id){
+            var playerToTp = playerHeldBy;
+            if(playerHeldBy == null){
+                playerToTp = StartOfRound.Instance.allPlayerObjects[(int)id].GetComponent<PlayerControllerB>();
+            }
+            playerToTp.beamOutBuildupParticle.Play();
+            playerToTp.movementAudio.PlayOneShot(beamUpAudio);
+            mainAudio.PlayOneShot(inverseSFX, 0.6f);
+
+            yield return new WaitForSeconds(5f);
+            if(playerToTp != null){
+                Vector3 vector = RoundManager.Instance.insideAINodes[tpSeed.Next(0, RoundManager.Instance.insideAINodes.Length)].transform.position;
+                vector = RoundManager.Instance.GetRandomNavMeshPositionInBoxPredictable(vector, 10f, default, tpSeed, -1);
+                if(playerToTp.deadBody != null){
+                    DeadBodyInfo deadBody = playerToTp.deadBody;
+                    if (deadBody != null)
+		{
+			deadBody.attachedTo = null;
+			deadBody.attachedLimb = null;
+			deadBody.secondaryAttachedLimb = null;
+			deadBody.secondaryAttachedTo = null;
+			if (deadBody.grabBodyObject != null && deadBody.grabBodyObject.isHeld && deadBody.grabBodyObject.playerHeldBy != null)
+			{
+				deadBody.grabBodyObject.playerHeldBy.DropAllHeldItems(true, false);
+			}
+			deadBody.isInShip = false;
+			deadBody.parentedToShip = false;
+			deadBody.transform.SetParent(null, true);
+			deadBody.SetRagdollPositionSafely(vector, true);
+		}
+                } else {
+                    if(dropScrap){
+                        playerToTp.DropAllHeldItemsExcept(this);
+                    }
+                    playerToTp.isInElevator = false;
+                    playerToTp.isInHangarShipRoom = false;
+                    playerToTp.isInsideFactory = true;
+                    playerToTp.averageVelocity = 0f;
+                    playerToTp.velocityLastFrame = Vector3.zero;
+                    playerToTp.TeleportPlayer(vector, false, 0f, false, true);
+                    playerToTp.beamOutParticle.Play();
+                    playerToTp.movementAudio.PlayOneShot(beamUpAudio2);
+                    if(playerToTp == GameNetworkManager.Instance.localPlayerController){
+                        HUDManager.Instance.ShakeCamera(ScreenShakeType.Big);
+                    }
+                }
+            }
+        }
+
+        public IEnumerator BeamToShip(bool dropScrap, ulong id){
+            var playerToTp = playerHeldBy;
+            if(playerHeldBy == null){
+                playerToTp = StartOfRound.Instance.allPlayerObjects[(int)id].GetComponent<PlayerControllerB>();
+            }      
+            playerToTp.beamUpParticle.Play();
+            playerToTp.movementAudio.PlayOneShot(beamUpAudio);
+            mainAudio.PlayOneShot(tpSFX, 0.6f);
+            ShipTeleporter[] tpers = FindObjectsOfType<ShipTeleporter>();
+            foreach(ShipTeleporter tp in tpers){
+                if(!tp.isInverseTeleporter){
+                    tp.shipTeleporterAudio.PlayOneShot(tp.teleporterSpinSFX);
+                    tp.teleporterAnimator.SetTrigger("useTeleporter");
+                    tp.cooldownTime = tp.cooldownAmount;
+                    tp.buttonTrigger.interactable = false;
+                    break;
+                }
+            }
             yield return new WaitForSeconds(3f);
-            Vector3 shipPos;
-            var tpOptional = FindObjectOfType<ShipTeleporter>();
+            UnityEngine.Vector3 shipPos;
+            ShipTeleporter tpOptional = null;
+            ShipTeleporter[] tpOptionals = FindObjectsOfType<ShipTeleporter>();
+            foreach(ShipTeleporter tp in tpOptionals){
+                if(!tp.isInverseTeleporter){
+                    tpOptional = tp;
+                }
+            }
             if(tpOptional != null){
                 shipPos = tpOptional.teleporterPosition.position;
             } else {
-                shipPos = StartOfRound.Instance.
+                shipPos = StartOfRound.Instance.middleOfShipNode.position;
             }
-            if(playerHeldBy != null){
+            if(playerToTp != null){
+                if (playerToTp.deadBody != null)
+		{
+			if (playerToTp.deadBody.grabBodyObject == null || !playerToTp.deadBody.grabBodyObject.isHeldByEnemy)
+			{
+				playerToTp.deadBody.attachedTo = null;
+				playerToTp.deadBody.attachedLimb = null;
+				playerToTp.deadBody.secondaryAttachedLimb = null;
+				playerToTp.deadBody.secondaryAttachedTo = null;
+				playerToTp.deadBody.SetRagdollPositionSafely(shipPos, true);
+				playerToTp.deadBody.transform.SetParent(StartOfRound.Instance.elevatorTransform, true);
+				if (playerToTp.deadBody.grabBodyObject != null && playerToTp.deadBody.grabBodyObject.isHeld && playerToTp.deadBody.grabBodyObject.playerHeldBy != null)
+				{
+					playerToTp.deadBody.grabBodyObject.playerHeldBy.DropAllHeldItems(true, false);
+				}
+			}
+		} else {
                 if(dropScrap){
-                    playerHeldBy.DropAllHeldItemsExcept(this);
+                    playerToTp.DropAllHeldItemsExcept(this);
                 }
-                playerHeldBy.TeleportPlayer(shipPos,true, 160f, false, true);
+                if (FindObjectOfType<AudioReverbPresets>()){
+				    FindObjectOfType<AudioReverbPresets>().audioPresets[3].ChangeAudioReverbForPlayer(playerToTp);
+			    }
+                playerToTp.isInElevator = true;
+                playerToTp.isInHangarShipRoom = true;
+                playerToTp.isInsideFactory = false;
+                playerToTp.averageVelocity = 0f;
+                playerToTp.velocityLastFrame = UnityEngine.Vector3.zero;
+                playerToTp.TeleportPlayer(shipPos,true, 160f, false, true);
+                playerToTp.movementAudio.PlayOneShot(beamUpAudio2);
+                if(GameNetworkManager.Instance.localPlayerController.isInHangarShipRoom){
+                    HUDManager.Instance.ShakeCamera(ScreenShakeType.Big);
+                }
+                playerToTp.beamUpParticle.Stop();
+        }
             }
         }
-
     }
 }

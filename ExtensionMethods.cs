@@ -1,8 +1,8 @@
 using GameNetcodeStuff;
-using MysteryButton.MonoBehaviors;
 using UnityEngine;
 
-namespace MysteryButton.ExtensionMethod{
+namespace ScrapButton.ExtensionMethod
+{
     public static class PlayerControllerExtension{
         public static void DropAllHeldItemsExcept(this PlayerControllerB pcb,GrabbableObject except,bool itemsFall = true, bool disconnecting = false)
     {
@@ -77,8 +77,12 @@ namespace MysteryButton.ExtensionMethod{
         pcb.carryWeight = 1f;
         pcb.currentlyHeldObjectServer = null;
     }
-
-
-
     }
+
+    public static class HUDManagerExtension{
+        public static void DisplayFloodWarning(this HUDManager hm){
+                hm.DisplayTip("Facility is flooding.","You have 45 seconds to evacuate.", true);
+        }
+    }
+
 }
