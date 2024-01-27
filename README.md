@@ -10,5 +10,5 @@ When you press it, it has a chance to:
 **The odds for these are configurable, and are defined by the host's config. The spawn rate of the scrap is also configurable.**
 By default, there is a 30% chance to explode, and a 0.1% chance to flood. Default spawn rate is 25 (uncommon) on all moons.
 
-If you encounter any issues please open an issue on the [Github](https://github.com/Gloveman23/ScrapButton).
+[Thunderstore](https://thunderstore.io/c/lethal-company/p/Gloveman23/Scrap_Button_Mod/)
 
