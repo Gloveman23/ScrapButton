@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using ScrapButton.ExtensionMethod;
 using UnityEngine;
@@ -16,12 +17,11 @@ namespace ScrapButton.MonoBehaviors{
         public float factoryBoundsY;
         public float surfaceBoundsY;
         public float floodLevel;
-        public float age;
         public static bool active = false;
         public GameObject extraCollider;
         public void Awake(){
             transform.position = new Vector3(0f,0f, 0f);
-            age = 0f;
+            floodLevel = 0f;
             extraCollider = Instantiate(new GameObject("Collider"),transform.position, Quaternion.identity);
             extraCollider.SetActive(false);
             //var script = extraCollider.AddComponent<QuicksandTrigger>();
@@ -92,16 +92,24 @@ namespace ScrapButton.MonoBehaviors{
 
 
         public void Update(){
-            age += Time.deltaTime;
+            floodLevel += Time.deltaTime;
             if (!GameNetworkManager.Instance.localPlayerController.isInsideFactory)
 		    {
 			    this.waterAudio.volume = 0f;
 			    return;
 		    }
-            if(age < 45f){
-                transform.position = new Vector3(0f, Mathf.Lerp(factoryBoundsY, entranceY, age/45f), 0f);
-            } else if(age < 90f){
-                transform.position = new Vector3(0f, Mathf.Lerp(entranceY, surfaceBoundsY, (age-45f)/45f), 0f);
+            if(floodLevel < 45f){
+                var progress = floodLevel/45f;
+                var input = progress*(Math.E - 1.0) + 1.0;
+                var output = Math.Log(input);
+                float newLevel = (float)output*(entranceY - factoryBoundsY) + factoryBoundsY;
+                transform.position = new Vector3(0f, newLevel, 0f);
+            } else if(floodLevel < 90f){
+                var progress = (floodLevel - 45f)/45f;
+                var input = progress*2 - 2;
+                var output = Math.Exp(input) - 0.135f;
+                float newLevel = (float)output*(surfaceBoundsY - entranceY) + entranceY;
+                transform.position = new Vector3(0f, newLevel, 0f);
             }
             var centerPos = (transform.position.y + factoryBoundsY) / 2f;
             var height = transform.position.y - factoryBoundsY;

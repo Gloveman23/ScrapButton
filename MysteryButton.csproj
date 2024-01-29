@@ -18,7 +18,7 @@
     <Reference Include="Assembly-CSharp" HintPath="...\Assembly-CSharp.dll" Publicize="true" />
     <Reference Include="UnityEngine" HintPath="...\UnityEngine.dll" Publicize="true" />
     <Reference Include="Unity.Netcode.Runtime" HintPath="...\Unity.Netcode.Runtime.dll" Publicize="true" />
-    <PackageReference Include="Unity.InputSystem" HintPath="...\Unity.InputSystem.dll" Publicize="true" />
+    <Reference Include="Unity.InputSystem" HintPath="...\Unity.InputSystem.dll" Publicize="true" />
     <Reference Include="Unity.TextMeshPro" HintPath="...\Unity.TextMeshPro.dll" Publicize="true" />
     <Reference Include="UnityEngine.UI" HintPath="...\UnityEngine.UI.dll" Publicize="true" />
     
