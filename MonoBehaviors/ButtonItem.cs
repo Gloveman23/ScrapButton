@@ -6,7 +6,7 @@ using UnityEngine;
 using static ScrapButton.ExtensionMethod.PlayerControllerExtension;
 
 namespace ScrapButton.MonoBehaviors{
-    internal class ButtonItem : PhysicsProp{
+    internal class ButtonItem : PhysicsProp {
         private System.Random random;
         private int bomb;
         private int flood;
@@ -29,7 +29,7 @@ namespace ScrapButton.MonoBehaviors{
         public AudioClip inverseSFX;
         //public AudioClip evacNotice;
         private static System.Random tpSeed;
-        
+
         public override void Start()
         {
             base.Start();
@@ -41,14 +41,14 @@ namespace ScrapButton.MonoBehaviors{
             var child = gameObject.transform.GetChild(0).GetChild(4);
             innerRenderer = child.GetComponent<MeshRenderer>();
             defMat = innerRenderer.GetMaterial();
-            
+
             mainAudio = gameObject.GetComponent<AudioSource>();
-            
+
         }
 
-        
 
-        public static void NewSeed(){
+
+        public static void NewSeed() {
             tpSeed = new System.Random(StartOfRound.Instance.randomMapSeed + 17 + (int)GameNetworkManager.Instance.localPlayerController.playerClientId);
         }
 
@@ -56,22 +56,22 @@ namespace ScrapButton.MonoBehaviors{
 
         public override void ItemActivate(bool used, bool buttonDown = true)
         {
-            base.ItemActivate(used,buttonDown);
-            
+            base.ItemActivate(used, buttonDown);
+
             NetworkManager networkManager = base.NetworkManager;
-            if(networkManager == null || !networkManager.IsListening){
+            if (networkManager == null || !networkManager.IsListening) {
                 return;
             }
-            if(playerHeldBy == null){
+            if (playerHeldBy == null) {
                 return;
             }
             currentUseCooldown = 3.5f;
             var playerId = playerHeldBy.playerClientId;
             mainAudio.PlayOneShot(pressed);
-            if(StartOfRound.Instance.inShipPhase){
+            if (StartOfRound.Instance.inShipPhase) {
                 return;
             }
-            if(base.IsHost || base.IsServer){
+            if (base.IsHost || base.IsServer) {
                 ExecuteButtonPressOnServer(playerId);
             } else {
                 RequestButtonPressServerRpc();
@@ -80,14 +80,14 @@ namespace ScrapButton.MonoBehaviors{
         public override void Update()
         {
             base.Update();
-            if(playerHeldBy != null){
+            if (playerHeldBy != null) {
                 playerLastHeldBy = playerHeldBy;
             }
-            if(boomTimer > 0f){
+            if (boomTimer > 0f) {
                 boomTimer -= Time.deltaTime;
-                bool lit = Math.Sin(Math.PI*(boomTimer+0.1)/0.2) > 0;
-                if(lit != lastLit){
-                    if(lit){
+                bool lit = Math.Sin(Math.PI * (boomTimer + 0.1) / 0.2) > 0;
+                if (lit != lastLit) {
+                    if (lit) {
                         innerRenderer.SetMaterial(redGlow);
                         light.color = Color.red;
                         light.enabled = true;
@@ -97,11 +97,26 @@ namespace ScrapButton.MonoBehaviors{
                     }
                 }
                 lastLit = lit;
-            } else if(exploding){
+            } else if (exploding) {
                 Detonate();
-                Destroy(gameObject);
+                if (this.IsHost || this.IsServer)
+                {
+                    Destroy(gameObject);
+                } else
+                {
+                    DestroyThisServerRpc();
+                }
             }
         }
+
+        [ServerRpc(RequireOwnership = false)]
+        public void DestroyThisServerRpc()
+        {
+            if (gameObject != null) { 
+            Destroy(gameObject);
+            } 
+        }
+
         public override void OnDestroy(){
             StopAllCoroutines();
         }

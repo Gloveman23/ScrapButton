@@ -8,11 +8,12 @@ using System.IO;
 using System;
 using ScrapButton.MonoBehaviors;
 using GameNetcodeStuff;
+using Unity.Netcode;
 
 namespace ScrapButton
 {
     
-    [BepInPlugin(GUID, "ScrapButton", "1.0.0.0")]
+    [BepInPlugin(GUID, "ScrapButton", "1.0.5.0")]
     [BepInProcess("Lethal Company.exe")]
     public class Plugin : BaseUnityPlugin    
     {
@@ -41,34 +42,36 @@ namespace ScrapButton
             logger = BepInEx.Logging.Logger.CreateLogSource(GUID);
             logger.LogInfo("ScrapButton is awake!");
 
-            if(Instance == null){
+            if (Instance == null)
+            {
                 Instance = this;
             }
 
-            bombChance = Config.Bind("General","Bomb_Chance",0.3,"Chance that a button press will explode (out of 1)");
-            floodChance = Config.Bind("General","Flood_Chance",0.001,"Chance that a button press will flood the facility (out of 1)");
-            spawnRate = Config.Bind("General", "Spawn Rate",25,"How much the device will spawn as scrap. Higher is more common.");
+            bombChance = Config.Bind("General", "Bomb_Chance", 0.3, "Chance that a button press will explode (out of 1)");
+            floodChance = Config.Bind("General", "Flood_Chance", 0.001, "Chance that a button press will flood the facility (out of 1)");
+            spawnRate = Config.Bind("General", "Spawn Rate", 25, "How much the device will spawn as scrap. Higher is more common.");
             leaveScrap = Config.Bind("General", "Leave Scrap", false, "Should players drop scrap when teleporting with the device?");
 
-            assets = AssetBundle.LoadFromFile(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),"assets"));
-            
+            assets = AssetBundle.LoadFromFile(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "assets"));
+
             UnpackAssets(assets);
 
             DoPatches();
 
             var types = Assembly.GetExecutingAssembly().GetTypes();
-                foreach (var type in types)
+            foreach (var type in types)
+            {
+                var methods = type.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+                foreach (var method in methods)
                 {
-                    var methods = type.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
-                    foreach (var method in methods)
+                    var attributes = method.GetCustomAttributes(typeof(RuntimeInitializeOnLoadMethodAttribute), false);
+                    if (attributes.Length > 0)
                     {
-                        var attributes = method.GetCustomAttributes(typeof(RuntimeInitializeOnLoadMethodAttribute), false);
-                        if (attributes.Length > 0)
-                        {
-                             method.Invoke(null, null);
-                        }
+                        method.Invoke(null, null);
                     }
                 }
+            }
+            
         }
         public void UnpackAssets(AssetBundle assetBundle){
             buttonItem = assetBundle.LoadAsset<Item>("Assets/AssetBundles/Bundle/ButtonItem.asset");
@@ -128,12 +131,16 @@ namespace ScrapButton
             var mPostTeleport = typeof(Plugin).GetMethod("PostTeleport");
             var pcb_teleport = AccessTools.Method(typeof(PlayerControllerB), "TeleportPlayer");
 
+            var mNetworkSetup = typeof(Plugin).GetMethod("NetworkSetup");
+            var gnm_start = AccessTools.Method(typeof(GameNetworkManager), "Start");
+
             harmony.Patch(sor_awake, postfix: new HarmonyMethod(mAwake));
             harmony.Patch(sor_opendoors, new HarmonyMethod(mOpenDoors));
             harmony.Patch(et_teleportplayer, new HarmonyMethod(mTeleportPlayer));
             harmony.Patch(qt_ontriggerstay, new HarmonyMethod(mPreSink), new HarmonyMethod(mPostSink));
             harmony.Patch(sor_endofgame, postfix: new HarmonyMethod(mEndOfGame));
             harmony.Patch(pcb_teleport, postfix: new HarmonyMethod(mPostTeleport));
+            harmony.Patch(gnm_start, new HarmonyMethod(mNetworkSetup));
         }
 
         public static void TerminalAwake(){
@@ -146,10 +153,10 @@ namespace ScrapButton
                 };
                 if(level.spawnableScrap.TrueForAll(scrap => scrap.spawnableItem != Instance.buttonItem)){
                     level.spawnableScrap.Add(buttonSpawnable);
-                    Instance.logger.LogInfo("Added to scrap to pool.");
                 }
+                
             }
-            
+            Instance.logger.LogInfo("Added scrap to pool.");
             startOfRound.allItemsList.itemsList.Add(Instance.buttonItem);
             if(Instance.indoorFlooding == null){
                 try{
@@ -226,6 +233,14 @@ namespace ScrapButton
             } else {
                 SoundManager.Instance.ambienceAudio.loop = false;
                 SoundManager.Instance.ambienceAudio.Stop();
+            }
+        }
+
+        public static void NetworkSetup()
+        {
+            if (!NetworkManager.Singleton.NetworkConfig.Prefabs.Contains(Instance.buttonItem.spawnPrefab))
+            {
+                NetworkManager.Singleton.AddNetworkPrefab(Instance.buttonItem.spawnPrefab);
             }
         }
     }
